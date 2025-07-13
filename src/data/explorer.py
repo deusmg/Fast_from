@@ -1,11 +1,13 @@
-from .init import curs
+from .init import curs, conn, IntegrityError
 from model.explorer import Explorer
+from error import Missing, Duplicate
 
 
 curs.execute("""create table if not exists explorer(
                 name primary key,
                 country text,
                 description text)""")
+
 
 def row_to_model(row: tuple) -> Explorer:
     name, country, description = row
@@ -21,7 +23,11 @@ def get_one(name: str) -> Explorer:
     qry = "select * from explorer where name=:name"
     params = {"name": name}
     curs.execute(qry, params)
-    return row_to_model(curs.fetchone())
+    row = curs.fetchone()
+    if row:
+        return row_to_model(row)
+    else:
+        raise Missing(msg=f'Explorer {name} not found')
 
 
 def get_all() -> list[Explorer]:
@@ -35,7 +41,10 @@ def create(explorer: Explorer) -> Explorer:
             (name, country, description) values
             (:name, :country, :description)"""
     params = model_to_dict(explorer)
-    _ = curs.execute(qry, params)
+    try:
+        curs.execute(qry, params)
+    except IntegrityError:
+        raise Duplicate(msg=f'Explorer {explorer.name} already exist')
     return get_one(explorer.name)
 
 
@@ -47,12 +56,17 @@ def modify(name: str, explorer: Explorer) -> Explorer:
             where name=:orig_name"""
     params = model_to_dict(explorer)
     params["orig_name"] = explorer.name
-    _ = curs.execute(qry, params)
-    explorer2 = get_one(explorer.name)
-    return explorer2
+    curs.execute(qry, params)
+    if curs.rowcount == 1:
+        return get_one(explorer.name)
+    else:
+        raise Missing(msg=f'Explorer {name} not found')
 
-def delete(explorer: Explorer) -> bool:
+def delete(name: str) -> bool:
+    if not name:
+        return False
     qry = "delete from explorer where name = :name"
-    params = {"name": explorer.name}
-    res = curs.execute(qry, params)
-    return bool(res)
+    params = {"name": name}
+    curs.execute(qry, params)
+    if curs.rowcount != 1:
+        raise Missing(msg=f'Explorer {name} not found')
